@@ -4178,30 +4178,33 @@ function initFirebaseSync() {
 
     setSyncStatus('connecting', 'conectando...');
 
-    // First read: pull remote state (merge se vazio)
+    // First read: decide entre pull remoto ou push local
     ref.once('value').then(snap => {
       const remote = snap.val();
-      if (remote && remote.routines) {
+      // Considera remoto valido se tiver pelo menos finance ou casalvintte
+      const remoteHasData = remote && (remote.finance || remote.casalvintte || remote.routines);
+      if (remoteHasData) {
         // Tem dados remotos — usar como source-of-truth
-        // Preservar sync config local (não sobrescrever credenciais)
         const localSync = state.sync;
         state = deepMerge(defaultState(), remote);
         state.sync = localSync;
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
         renderAll();
       } else {
-        // Sem dados remotos — push local
-        ref.set(sanitizeForFirebase(state));
+        // Banco vazio — enviar dados locais para o Firebase
+        const toPush = sanitizeForFirebase(state);
+        ref.set(toPush).catch(e => console.warn('Firebase push error', e));
       }
       setSyncStatus('online', 'sincronizado');
 
-      // Listen for remote updates
+      // Ouvir atualizacoes remotas em tempo real
       ref.on('value', snap => {
         const remote = snap.val();
         if (!remote) return;
+        if (suppressNextSync) { suppressNextSync = false; return; }
         const remoteStr = JSON.stringify(remote);
-        const localStr = JSON.stringify(sanitizeForFirebase(state));
-        if (remoteStr === localStr) return; // sem diff
+        const localStr  = JSON.stringify(sanitizeForFirebase(state));
+        if (remoteStr === localStr) return; // sem diff, ignora
         const localSync = state.sync;
         state = deepMerge(defaultState(), remote);
         state.sync = localSync;
@@ -4211,7 +4214,7 @@ function initFirebaseSync() {
       });
     }).catch(err => {
       console.warn('Firebase init error', err);
-      setSyncStatus('error', 'erro de conexão');
+      setSyncStatus('error', 'erro de conexao');
     });
   } catch (e) {
     console.warn('Firebase setup error', e);
