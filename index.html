@@ -2295,18 +2295,16 @@ function save() {
   saveTimer = setTimeout(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
     showSaved();
-    // Push para Firebase se ativo e nao estamos recebendo dado remoto
+    // Push para Firebase se ativo e nao estamos aplicando dado remoto
     if (window.__firebaseRef && !isSyncingFromRemote) {
       const toSend = sanitizeForFirebase(state);
-      const toSendStr = JSON.stringify(toSend);
-      lastPushedStr = toSendStr; // marca o que enviamos para ignorar o echo
+      lastPushedStr = JSON.stringify(toSend); // marca para ignorar echo
       window.__firebaseRef.set(toSend).catch(err => {
         console.warn('Firebase sync error', err);
         setSyncStatus('error', 'erro');
       });
     }
-    isSyncingFromRemote = false;
-  }, 500);
+  }, 600);
 }
 
 function showSaved() {
@@ -4208,18 +4206,19 @@ function initFirebaseSync() {
         const remote = snap.val();
         if (!remote) return;
         const remoteStr = JSON.stringify(remote);
-        // Ignorar echo do nosso proprio push
-        if (remoteStr === lastPushedStr) return;
-        // Ignorar se igual ao estado atual
-        const localStr = JSON.stringify(sanitizeForFirebase(state));
-        if (remoteStr === localStr) return;
-        // Aplicar dado remoto
+        // Ignorar echo do nosso proprio push (mas só uma vez)
+        if (remoteStr === lastPushedStr) {
+          lastPushedStr = null; // limpa para proximas mudancas
+          return;
+        }
+        // Aplicar dado remoto sempre (nao checar igualdade pois pode ter diff sutil)
         isSyncingFromRemote = true;
         const localSync = state.sync;
         state = deepMerge(defaultState(), remote);
         state.sync = localSync;
         lastPushedStr = remoteStr;
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+        isSyncingFromRemote = false;
         renderAll();
         setSyncStatus('online', 'sincronizado');
       });
